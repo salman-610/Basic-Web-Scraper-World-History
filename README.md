@@ -1,67 +1,89 @@
-World History Web Scraper
+Basic Web Scraper – World History
 
-A Python-based web scraping project that gathers historical event information from Wikipedia's yearly events pages and organizes it for analysis and review.
+A Python web scraping project featuring historical event extraction, date validation, event categorization, and duplicate detection using Requests and Beautiful Soup.
+
+Project Overview
+
+This project scrapes historical events from Wikipedia's annual event pages for the years 1865–1890. It extracts relevant event information, classifies events into categories, and performs data-quality checks before displaying the results in the terminal.
 
 Features
 
-- Collect historical event entries from 2020 to 2026.
-- Extract event titles and identify dates when possible.
-- Classify events into categories such as wars, terrorism and attacks, natural disasters, and human-caused disasters.
-- Detect potential duplicate entries and similar event titles.
-- Identify records with missing dates or uncertain classifications.
-- Perform data quality checks to support accurate historical data collection.
-- Prepare structured event records for future database integration.
+- Scrapes historical events from Wikipedia.
+- Extracts event titles, dates, years, and categories.
+- Uses Requests to retrieve webpages.
+- Uses Beautiful Soup to parse HTML content.
+- Categorizes events into predefined categories.
+- Validates dates and required fields.
+- Flags potential duplicate and similar event titles.
+- Generates data-quality reports and identifies entries requiring manual review.
+- Displays results in a readable terminal format.
 
 Technologies Used
 
--  Python  — scraping logic, text processing, and data validation
--  Requests  — retrieving webpage content
--  Beautiful Soup  — parsing HTML and extracting event information
--  MySQL  — database integration
--  Regular Expressions  — date extraction and text matching
--  Git and GitHub  — version control and project hosting
+- Python
+- Requests
+- Beautiful Soup
+- Regular Expressions
+- MySQL connector module (supporting project database code)
 
 Project Structure
 
-
-world_history_web_scraper/
+```text
+Basic-Web-Scraper-World-History/
 ├── main.py
 ├── database.py
+├── README.md
 ├── requirements.txt
-├── .env.example
 ├── .gitignore
-└── README.md
+└── .env.example
+```
 
+Installation and Usage
 
-How It Works
+1. Clone the repository:
 
-1. Retrieves historical event pages from Wikipedia.
-2. Extracts event entries from the relevant sections.
-3. Cleans and processes the collected text.
-4. Identifies dates and assigns categories using predefined rules.
-5. Checks for possible duplicates, missing information, and ambiguous records.
-6. Produces a summary of the collected data and entries requiring further review.
+   
+   git clone https://github.com/salman-610/Basic-Web-Scraper-World-History.git
+   
 
-Data Quality and Validation
+2. Navigate to the project directory:
 
-Historical event titles do not always contain enough information to determine an exact date or category automatically. The scraper flags uncertain records for manual review rather than assuming that every extracted value is correct.
+   
+   cd Basic-Web-Scraper-World-History
+   
 
-Duplicate detection and event classification are rule-based, so their results should be checked before the data is used for further analysis.
+3. Install the dependencies:
 
-Data Source
+   
+   pip install -r requirements.txt
+   
 
-The project uses Wikipedia's yearly historical events pages as its primary scraping source.
+4. Run the scraper:
 
-Historical information collected by the scraper should be verified against reliable references before being treated as authoritative.
+   
+   python main.py
+   
 
-Future Enhancements
+Current Configuration
 
-- Expand historical coverage beyond the current year range.
-- Improve date extraction and event classification.
-- Store validated historical records in MySQL.
-- Develop a web interface for searching and exploring events.
-- Add filters for event year and category.
-- Provide interactive visualizations of historical events.
+- Year range: 1865–1890
+- Data source: Wikipedia annual event pages
+- Execution mode: Preview only
+- Database writes: Disabled
+
+The scraper displays extracted events and data-quality reports without modifying database records.
+
+Learning Objectives
+
+- Understand web scraping with Requests and Beautiful Soup.
+- Learn the basics of HTML parsing and data extraction.
+- Practice regular expressions and date validation.
+- Implement basic event categorization and duplicate detection.
+- Present extracted information in a readable format.
+
+Disclaimer
+
+This project is intended for educational purposes. Extracted data and automated classifications may require manual verification. Please follow Wikipedia's applicable terms and access guidelines when scraping.
 
 Author
 
