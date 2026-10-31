@@ -1,26 +1,22 @@
-
 import re
 from datetime import datetime
-from collections import Counter, defaultdict
+from collections import defaultdict
 from difflib import SequenceMatcher
 
 import requests
 from bs4 import BeautifulSoup
 
 
-START_YEAR = 1865
-END_YEAR = 1890
-PREVIEW_ONLY = True
+START_YEAR = 2020
+END_YEAR = 2026
 
 BASE_URL = "https://en.wikipedia.org/wiki/"
-
 HEADERS = {
-    "User-Agent": "WorldHistoryWebScraper/1.0 (educational project)"
+    "User-Agent": "HistoryEventResearchTool/1.0 (student learning project)"
 }
 
 MIN_TITLE_LENGTH = 25
 SIMILARITY_THRESHOLD = 0.92
-
 
 MONTHS = (
     r"January|February|March|April|May|June|July|August|"
@@ -47,20 +43,17 @@ DATE_CONTEXT_PATTERN = re.compile(
     rf"was announced on|was released on|"
     rf"was destroyed on|was attacked on|"
     rf"was killed on|was born on|was declared on|"
-    rf"was captured on|was elected on|"
-    rf"on)\s+"
+    rf"was captured on|was elected on|on)\s+"
     rf"({MONTHS})\s+(\d{{1,2}})(?:,\s*(\d{{4}}))?\b",
     re.IGNORECASE,
 )
 
 LATER_EVENT_PATTERN = re.compile(
     r"\b(?:months later|weeks later|days later|"
-    r"the following day|the next day|"
-    r"later that year|later that month|"
-    r"subsequently|in a later development)\b",
+    r"the following day|the next day|later that year|"
+    r"later that month|subsequently|in a later development)\b",
     re.IGNORECASE,
 )
-
 
 CATEGORIES = {
     "War": [
@@ -143,7 +136,6 @@ CATEGORIES = {
     ],
 }
 
-
 IRRELEVANT_PATTERNS = [
     r"\btrade war\b",
     r"\bwar on poverty\b",
@@ -162,69 +154,72 @@ IRRELEVANT_PATTERNS = [
 ]
 
 
-def clean_text(text):
+def history_scraper_clean_page_text(text):
     text = re.sub(r"\s+", " ", text).strip()
     text = re.sub(r"\s+([,.;:!?])", r"\1", text)
-    text = re.sub(r"\[\d+\]", "", text)
-    return text
+    return re.sub(r"\[\d+\]", "", text)
 
 
-def normalize_text(text):
-    return clean_text(text).casefold()
+def history_scraper_normalize_text(text):
+    return history_scraper_clean_page_text(text).casefold()
 
 
-def normalize_event_title(title):
-    """Normalize titles for duplicate comparison."""
-    title = normalize_text(title)
+def history_scraper_prepare_title_key(title):
+    title = history_scraper_normalize_text(title)
+
     title = re.sub(
         r"^[a-z]+\s+\d{1,2}(?:,\s*\d{4})?\s*[–—-]\s*",
         "",
         title,
     )
+
     title = re.sub(r"[^a-z0-9\s]", " ", title)
+
     return re.sub(r"\s+", " ", title).strip()
 
 
-def get_heading_text(heading):
+def history_scraper_read_heading(heading):
     text = heading.get_text(" ", strip=True)
-    text = re.sub(r"\[edit\]", "", text, flags=re.IGNORECASE)
-    return normalize_text(text)
+
+    text = re.sub(
+        r"\[edit\]",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    return history_scraper_normalize_text(text)
 
 
-def parse_date_match(match, year):
-    """Convert a matched date into YYYY-MM-DD and validate it."""
+def history_scraper_validate_date_match(match, year):
     month, day, explicit_year = match.groups()
+
     date_year = int(explicit_year) if explicit_year else year
 
     if date_year != year:
         return None
 
     try:
-        parsed_date = datetime.strptime(
+        return datetime.strptime(
             f"{month} {day} {date_year}",
             "%B %d %Y",
-        ).date()
-
-        return parsed_date.isoformat()
+        ).date().isoformat()
 
     except ValueError:
         return None
 
 
-def get_date_from_title(title, year):
-    """
-    Date priority:
-    1. Explicit date at the beginning of an entry.
-    2. One unambiguous date linked to the main event.
-    3. Otherwise, return None.
-    """
+def history_scraper_find_event_date(title, year):
     leading_match = LEADING_DATE_PATTERN.match(title)
 
     if leading_match:
         date_match = DATE_PATTERN.search(leading_match.group(0))
 
         if date_match:
-            return parse_date_match(date_match, year)
+            return history_scraper_validate_date_match(
+                date_match,
+                year,
+            )
 
     sentences = re.split(
         r"(?<=[.!?])\s+",
@@ -237,33 +232,33 @@ def get_date_from_title(title, year):
     if LATER_EVENT_PATTERN.search(first_sentence):
         return None
 
-    matches = list(DATE_CONTEXT_PATTERN.finditer(first_sentence))
-    valid_dates = set()
+    valid_dates = {
+        parsed
+        for match in DATE_CONTEXT_PATTERN.finditer(first_sentence)
+        if (
+            parsed := history_scraper_validate_date_match(
+                match,
+                year,
+            )
+        )
+    }
 
-    for match in matches:
-        parsed_date = parse_date_match(match, year)
-
-        if parsed_date:
-            valid_dates.add(parsed_date)
-
-    if len(valid_dates) == 1:
-        return next(iter(valid_dates))
-
-    return None
+    return next(iter(valid_dates)) if len(valid_dates) == 1 else None
 
 
-def get_events_section(soup):
+def history_scraper_locate_events_section(soup):
     for heading in soup.find_all(["h2", "h3"]):
-        if get_heading_text(heading) == "events":
+        if history_scraper_read_heading(heading) == "events":
             return heading
 
     return None
 
 
-def get_event_lists(events_heading):
+def history_scraper_collect_event_lists(events_heading):
     event_lists = []
 
     for element in events_heading.find_all_next():
+
         if element.name == "h2":
             break
 
@@ -273,8 +268,7 @@ def get_event_lists(events_heading):
     return event_lists
 
 
-def get_item_text(list_item):
-    """Extract an item's text without nested events or references."""
+def history_scraper_extract_list_item_text(list_item):
     item_copy = BeautifulSoup(str(list_item), "html.parser")
 
     selectors = [
@@ -297,66 +291,74 @@ def get_item_text(list_item):
     for element in item_copy.find_all(["ul", "ol"]):
         element.decompose()
 
-    return clean_text(item_copy.get_text(" ", strip=True))
+    return history_scraper_clean_page_text(
+        item_copy.get_text(" ", strip=True)
+    )
 
 
-def is_irrelevant(title):
+def history_scraper_is_out_of_scope(title):
     return any(
         re.search(pattern, title, re.IGNORECASE)
         for pattern in IRRELEVANT_PATTERNS
     )
 
 
-def is_political_landslide(title):
+def history_scraper_detect_election_landslide(title):
     return bool(
         re.search(r"\blandslide\b", title, re.IGNORECASE)
         and re.search(
-            r"\b(election|electoral|vote|votes|victory|"
-            r"president|prime minister|parliament|second term)\b",
+            r"\b(election|electoral|vote|votes|victory|president|"
+            r"prime minister|parliament|second term)\b",
             title,
             re.IGNORECASE,
         )
     )
 
 
-def classify_event(title):
-    if is_irrelevant(title) or is_political_landslide(title):
+def history_scraper_assign_event_category(title):
+
+    if (
+        history_scraper_is_out_of_scope(title)
+        or history_scraper_detect_election_landslide(title)
+    ):
         return "Ignore", []
 
     legislative_context = re.search(
-        r"\b(legislation|law|bill|criminalizes|criminalises|"
-        r"sanctions|designates|national security legislation)\b",
+        r"\b(legislation|law|bill|criminalizes|criminalises|sanctions|"
+        r"designates|national security legislation)\b",
         title,
         re.IGNORECASE,
     )
 
     explicit_attack = re.search(
-        r"\b(terrorist attack|suicide bombing|suicide bomber|"
-        r"mass shooting|shooting spree|gunmen storm|"
-        r"militants attack|attack on civilians)\b",
+        r"\b(terrorist attack|suicide bombing|suicide bomber|mass shooting|"
+        r"shooting spree|gunmen storm|militants attack|attack on civilians)\b",
         title,
         re.IGNORECASE,
     )
 
     if legislative_context and not explicit_attack:
-        title_for_attack_check = re.sub(
+        attack_check_title = re.sub(
             r"\b(terrorism|terrorist|attack|attacks)\b",
             "",
             title,
             flags=re.IGNORECASE,
         )
     else:
-        title_for_attack_check = title
+        attack_check_title = title
 
-    if re.search(
-        r"\b(covid-19|coronavirus|pandemic)\b",
-        title,
-        re.IGNORECASE,
-    ) and not re.search(
-        r"\b(airstrike|bombing|invasion|military attack|"
-        r"terrorist attack|armed conflict|war crime)\b",
-        title,
-        re.IGNORECASE,
+    if (
+        re.search(
+            r"\b(covid-19|coronavirus|pandemic)\b",
+            title,
+            re.IGNORECASE,
+        )
+        and not re.search(
+            r"\b(airstrike|bombing|invasion|military attack|"
+            r"terrorist attack|armed conflict|war crime)\b",
+            title,
+            re.IGNORECASE,
+        )
     ):
         return "Ignore", []
 
@@ -371,8 +373,9 @@ def classify_event(title):
     matching = []
 
     for category, patterns in CATEGORIES.items():
+
         check_title = (
-            title_for_attack_check
+            attack_check_title
             if category == "Terrorism / Attack"
             else title
         )
@@ -392,11 +395,12 @@ def classify_event(title):
     return matching[0], matching
 
 
-def is_valid_event_title(title):
+def history_scraper_check_title_quality(title):
+
     if not title or len(title) < MIN_TITLE_LENGTH:
         return False
 
-    normalized = normalize_text(title)
+    normalized = history_scraper_normalize_text(title)
 
     if normalized in ("events", "references", "see also"):
         return False
@@ -410,24 +414,27 @@ def is_valid_event_title(title):
     return True
 
 
-def get_review_reason(title, category, matching_categories, event_date):
+def history_scraper_build_review_notes(
+    title,
+    category,
+    matching_categories,
+    event_date,
+):
     reasons = []
 
     if category == "Needs Review":
         reasons.append("Multiple matching categories")
+
         reasons.append(
             "Matched categories: " + ", ".join(matching_categories)
         )
 
-    dates = DATE_PATTERN.findall(title)
-
-    if len(dates) > 1:
+    if len(DATE_PATTERN.findall(title)) > 1:
         reasons.append("Multiple dates found; verify event date")
 
     if re.search(
-        r"\b(in a separate incident|meanwhile|separately|"
-        r"another attack|a second attack|in another incident|"
-        r"two separate incidents|multiple incidents)\b",
+        r"\b(in a separate incident|meanwhile|separately|another attack|"
+        r"a second attack|in another incident|two separate incidents|multiple incidents)\b",
         title,
         re.IGNORECASE,
     ):
@@ -437,20 +444,22 @@ def get_review_reason(title, category, matching_categories, event_date):
         reasons.append("Event date not identified")
 
     if re.search(
-        r"\b(unrelated incident|at the same time|"
-        r"as well as another incident)\b",
+        r"\b(unrelated incident|at the same time|as well as another incident)\b",
         title,
         re.IGNORECASE,
     ):
         reasons.append("Possible unrelated events in one description")
 
-    if re.search(
-        r"\b(election|elected|parliamentary vote)\b",
-        title,
-        re.IGNORECASE,
-    ) and category in (
-        "Natural Disaster",
-        "Human-Caused Disaster",
+    if (
+        re.search(
+            r"\b(election|elected|parliamentary vote)\b",
+            title,
+            re.IGNORECASE,
+        )
+        and category in (
+            "Natural Disaster",
+            "Human-Caused Disaster",
+        )
     ):
         reasons.append("Possible unrelated election reference")
 
@@ -466,25 +475,34 @@ def get_review_reason(title, category, matching_categories, event_date):
     return "; ".join(dict.fromkeys(reasons))
 
 
-def extract_list_entries(event_lists, year):
+def history_scraper_parse_event_entries(event_lists, year):
     entries = []
     seen_entries = set()
 
-    def process_item(list_item):
-        title = get_item_text(list_item)
+    def history_scraper_process_list_item(list_item):
 
-        if is_valid_event_title(title):
-            category, matching_categories = classify_event(title)
+        title = history_scraper_extract_list_item_text(list_item)
+
+        if history_scraper_check_title_quality(title):
+
+            category, matching_categories = (
+                history_scraper_assign_event_category(title)
+            )
 
             if category != "Ignore":
-                event_date = get_date_from_title(title, year)
+
+                event_date = history_scraper_find_event_date(
+                    title,
+                    year,
+                )
 
                 unique_key = (
-                    normalize_text(title),
+                    history_scraper_normalize_text(title),
                     event_date,
                 )
 
                 if unique_key not in seen_entries:
+
                     seen_entries.add(unique_key)
 
                     entries.append({
@@ -494,11 +512,13 @@ def extract_list_entries(event_lists, year):
                         "category": category,
                         "source_url": f"{BASE_URL}{year}",
                         "source_name": "Wikipedia",
-                        "review_reason": get_review_reason(
-                            title,
-                            category,
-                            matching_categories,
-                            event_date,
+                        "review_reason": (
+                            history_scraper_build_review_notes(
+                                title,
+                                category,
+                                matching_categories,
+                                event_date,
+                            )
                         ),
                     })
 
@@ -506,33 +526,30 @@ def extract_list_entries(event_lists, year):
             ["ul", "ol"],
             recursive=False,
         ):
+
             for child_item in child_list.find_all(
                 "li",
                 recursive=False,
             ):
-                process_item(child_item)
+                history_scraper_process_list_item(child_item)
 
     for event_list in event_lists:
-        for list_item in event_list.find_all(
-            "li",
-            recursive=False,
-        ):
-            process_item(list_item)
+
+        for list_item in event_list.find_all("li", recursive=False):
+            history_scraper_process_list_item(list_item)
 
     return entries
 
 
-def scrape_year(year):
-    url = f"{BASE_URL}{year}"
-
-    print(f"\nScraping {year}...")
+def history_scraper_fetch_year_events(year):
 
     try:
         response = requests.get(
-            url,
+            f"{BASE_URL}{year}",
             headers=HEADERS,
             timeout=30,
         )
+
         response.raise_for_status()
 
     except requests.RequestException as error:
@@ -540,29 +557,26 @@ def scrape_year(year):
         return []
 
     soup = BeautifulSoup(response.text, "html.parser")
-    events_heading = get_events_section(soup)
+
+    events_heading = history_scraper_locate_events_section(soup)
 
     if events_heading is None:
-        print("Events heading was not found.")
+        print(f"Events section not found for {year}.")
         return []
 
-    event_lists = get_event_lists(events_heading)
+    event_lists = history_scraper_collect_event_lists(events_heading)
 
-    print(f"Raw Events lists found: {len(event_lists)}")
-
-    entries = extract_list_entries(event_lists, year)
-
-    print(f"Relevant candidates: {len(entries)}")
-
-    return entries
+    return history_scraper_parse_event_entries(
+        event_lists,
+        year,
+    )
 
 
-def add_review_reason(event, reason):
-    existing = event.get("review_reason", "")
+def history_scraper_append_review_note(event, reason):
 
     reasons = [
         item.strip()
-        for item in existing.split(";")
+        for item in event.get("review_reason", "").split(";")
         if item.strip()
     ]
 
@@ -572,59 +586,68 @@ def add_review_reason(event, reason):
     event["review_reason"] = "; ".join(reasons)
 
 
-def run_global_quality_checks(events):
-    """
-    Flag potential duplicates across scraped entries.
-    Does not delete or merge records automatically.
-    """
+def history_scraper_check_collection_duplicates(events):
+
     exact_groups = defaultdict(list)
     title_groups = defaultdict(list)
     date_category_groups = defaultdict(list)
 
     for index, event in enumerate(events):
-        title_key = normalize_event_title(event["event_title"])
-        date = event["event_date"]
+
+        title_key = history_scraper_prepare_title_key(
+            event["event_title"]
+        )
+
+        event_date = event["event_date"]
         category = event["category"]
 
         if title_key:
-            exact_groups[(title_key, date)].append(index)
+            exact_groups[(title_key, event_date)].append(index)
             title_groups[title_key].append(index)
 
-        if date:
-            date_category_groups[(date, category)].append(index)
+        if event_date:
+            date_category_groups[(event_date, category)].append(index)
 
     duplicate_indices = set()
     similar_indices = set()
     same_date_category_indices = set()
 
     for indices in exact_groups.values():
+
         if len(indices) > 1:
             duplicate_indices.update(indices)
 
     for indices in title_groups.values():
+
         if len(indices) > 1:
-            for index in indices:
-                if index not in duplicate_indices:
-                    similar_indices.add(index)
+            similar_indices.update(
+                index
+                for index in indices
+                if index not in duplicate_indices
+            )
 
     for indices in date_category_groups.values():
+
         if len(indices) > 1:
             same_date_category_indices.update(indices)
 
     for index in duplicate_indices:
-        add_review_reason(
+
+        history_scraper_append_review_note(
             events[index],
             "Possible duplicate title and date",
         )
 
     for index in similar_indices:
-        add_review_reason(
+
+        history_scraper_append_review_note(
             events[index],
             "Repeated normalized title; verify whether duplicate",
         )
 
     for index in same_date_category_indices:
-        add_review_reason(
+
+        history_scraper_append_review_note(
             events[index],
             "Another event shares this date and category; verify",
         )
@@ -635,8 +658,10 @@ def run_global_quality_checks(events):
         year_groups[event["event_year"]].append(index)
 
     for year, indices in year_groups.items():
+
         for position, first_index in enumerate(indices):
-            first_title = normalize_event_title(
+
+            first_title = history_scraper_prepare_title_key(
                 events[first_index]["event_title"]
             )
 
@@ -644,14 +669,12 @@ def run_global_quality_checks(events):
                 continue
 
             for second_index in indices[position + 1:]:
-                second_title = normalize_event_title(
+
+                second_title = history_scraper_prepare_title_key(
                     events[second_index]["event_title"]
                 )
 
-                if len(second_title) < 35:
-                    continue
-
-                if first_title == second_title:
+                if len(second_title) < 35 or first_title == second_title:
                     continue
 
                 similarity = SequenceMatcher(
@@ -661,32 +684,48 @@ def run_global_quality_checks(events):
                 ).ratio()
 
                 if similarity >= SIMILARITY_THRESHOLD:
-                    add_review_reason(
+
+                    reason = (
+                        f"Similar title in {year}; verify possible duplicate"
+                    )
+
+                    history_scraper_append_review_note(
                         events[first_index],
-                        f"Similar title in {year}; verify possible duplicate",
+                        reason,
                     )
-                    add_review_reason(
+
+                    history_scraper_append_review_note(
                         events[second_index],
-                        f"Similar title in {year}; verify possible duplicate",
+                        reason,
                     )
 
 
-def validate_event_records(events):
-    """Check date structure, year consistency, and required fields."""
+def history_scraper_validate_event_collection(events):
+
     valid_categories = set(CATEGORIES) | {"Needs Review"}
 
     for event in events:
+
         event_date = event.get("event_date")
         event_year = event.get("event_year")
         title = event.get("event_title", "")
 
         if not title.strip():
-            add_review_reason(event, "Missing event title")
+
+            history_scraper_append_review_note(
+                event,
+                "Missing event title",
+            )
 
         if event_year not in range(START_YEAR, END_YEAR + 1):
-            add_review_reason(event, "Event year outside configured range")
+
+            history_scraper_append_review_note(
+                event,
+                "Event year outside configured range",
+            )
 
         if event_date:
+
             try:
                 parsed_date = datetime.strptime(
                     event_date,
@@ -694,253 +733,193 @@ def validate_event_records(events):
                 ).date()
 
                 if parsed_date.isoformat() != event_date:
-                    add_review_reason(event, "Invalid date format")
+
+                    history_scraper_append_review_note(
+                        event,
+                        "Invalid date format",
+                    )
 
                 if parsed_date.year != event_year:
-                    add_review_reason(
+
+                    history_scraper_append_review_note(
                         event,
                         "Date year does not match target year",
                     )
 
             except (ValueError, TypeError):
-                add_review_reason(event, "Invalid calendar date")
+
+                history_scraper_append_review_note(
+                    event,
+                    "Invalid calendar date",
+                )
 
         if not event.get("source_url"):
-            add_review_reason(event, "Missing source URL")
+
+            history_scraper_append_review_note(
+                event,
+                "Missing source URL",
+            )
 
         if not event.get("source_name"):
-            add_review_reason(event, "Missing source name")
+
+            history_scraper_append_review_note(
+                event,
+                "Missing source name",
+            )
 
         if event.get("category") not in valid_categories:
-            add_review_reason(
+
+            history_scraper_append_review_note(
                 event,
                 "Unrecognized category; verify classification",
             )
 
 
-def print_data_quality_report(events):
-    print("\n" + "=" * 60)
-    print("DATA QUALITY REPORT")
-    print("=" * 60)
+def history_scraper_display_collection_summary(events):
 
     total = len(events)
-    flagged = [
-        event for event in events
-        if event.get("review_reason")
-    ]
-    unflagged = total - len(flagged)
-
-    print(f"Total candidate events: {total}")
-    print(f"Entries requiring review: {len(flagged)}")
-    print(f"Entries without review flags: {unflagged}")
-
-    print("\nReview reason counts:")
-
-    reason_counts = Counter()
-
-    for event in events:
-        for reason in event.get("review_reason", "").split(";"):
-            reason = reason.strip()
-
-            if reason:
-                reason_counts[reason] += 1
-
-    if reason_counts:
-        for reason, count in reason_counts.most_common():
-            print(f"{reason}: {count}")
-    else:
-        print("No review flags found.")
-
-    print("\nDATE VALIDATION SUMMARY")
 
     known_dates = sum(
-        1 for event in events
-        if event.get("event_date")
-    )
-
-    unknown_dates = total - known_dates
-
-    print(f"Known dates: {known_dates}")
-    print(f"Unknown dates: {unknown_dates}")
-
-    if total:
-        print(f"Known-date percentage: {known_dates / total * 100:.1f}%")
-        print(f"Unknown-date percentage: {unknown_dates / total * 100:.1f}%")
-
-    print("\nEVENT COUNTS BY YEAR")
-
-    yearly_counts = defaultdict(Counter)
-
-    for event in events:
-        year = event["event_year"]
-        yearly_counts[year]["total"] += 1
-
-        if event.get("event_date"):
-            yearly_counts[year]["known"] += 1
-        else:
-            yearly_counts[year]["unknown"] += 1
-
-    for year in range(START_YEAR, END_YEAR + 1):
-        counts = yearly_counts[year]
-
-        print(
-            f"{year}: total={counts['total']}, "
-            f"known={counts['known']}, "
-            f"unknown={counts['unknown']}"
-        )
-
-    print("\nCATEGORY COUNTS")
-
-    category_counts = Counter(
-        event["category"]
+        bool(event.get("event_date"))
         for event in events
     )
 
-    for category, count in sorted(category_counts.items()):
-        print(f"{category}: {count}")
-
-
-def print_flagged_events(events, limit=50):
-    flagged_events = [
-        event for event in events
-        if event.get("review_reason")
-    ]
-
-    print("\n" + "=" * 60)
-    print("EVENTS REQUIRING MANUAL REVIEW")
-    print("=" * 60)
-
-    print(f"Flagged entries: {len(flagged_events)}")
-    print(f"Displaying up to: {limit}")
-
-    for number, event in enumerate(flagged_events[:limit], start=1):
-        print(f"\n{number}. {event['event_title']}")
-        print(f"   Year: {event['event_year']}")
-        print(f"   Date: {event['event_date'] or 'UNKNOWN'}")
-        print(f"   Category: {event['category']}")
-        print(f"   Review: {event['review_reason']}")
-        print(f"   Source: {event['source_url']}")
-
-    if len(flagged_events) > limit:
-        print(
-            f"\n{len(flagged_events) - limit} additional entries "
-            "were not displayed."
-        )
-
-
-def print_date_quality_report(events):
-    total = len(events)
-
-    known = sum(
-        1 for event in events
-        if event.get("event_date") is not None
+    flagged = sum(
+        bool(event.get("review_reason"))
+        for event in events
     )
 
-    unknown = total - known
-
-    print("\n" + "=" * 60)
-    print("DATE QUALITY REPORT")
-    print("=" * 60)
-
-    print(f"Total candidate events: {total}")
-    print(f"Known dates: {known}")
-    print(f"Unknown dates: {unknown}")
+    print("\n===== Scraping Summary =====")
+    print(f"Events collected: {total}")
+    print(f"Dates identified: {known_dates}/{total}")
+    print(f"Entries needing review: {flagged}")
 
     if total:
-        print(f"Known-date percentage: {known / total * 100:.1f}%")
-        print(f"Unknown-date percentage: {unknown / total * 100:.1f}%")
-
-    yearly_totals = defaultdict(Counter)
-
-    for event in events:
-        year = event["event_year"]
-
-        if event.get("event_date"):
-            yearly_totals[year]["known"] += 1
-        else:
-            yearly_totals[year]["unknown"] += 1
-
-    print("\nDate counts by year:")
-
-    for year in range(START_YEAR, END_YEAR + 1):
-        counts = yearly_totals[year]
-
-        print(
-            f"{year}: total={counts['known'] + counts['unknown']}, "
-            f"known={counts['known']}, "
-            f"unknown={counts['unknown']}"
-        )
+        print(f"Date coverage: {known_dates / total:.1%}")
+    else:
+        print("Date coverage: 0.0%")
 
 
-def print_review_summary(events):
-    category_totals = Counter()
-    flagged_events = []
-    unflagged_events = []
+def history_scraper_display_category_events(
+    events,
+    selected_category,
+):
 
-    for event in events:
-        category_totals[event["category"]] += 1
+    matching_events = [
+        event
+        for event in events
+        if event["category"] == selected_category
+    ]
+
+    print(f"\n===== {selected_category} Events =====")
+    print(f"Total events: {len(matching_events)}")
+
+    if not matching_events:
+        print("No events found in this category.")
+        return
+
+    for index, event in enumerate(matching_events, start=1):
+
+        print(f"\n{index}. {event['event_title']}")
+        print(f"   Date: {event['event_date'] or 'Unknown'}")
+        print(f"   Year: {event['event_year']}")
+        print(f"   Source: {event['source_url']}")
 
         if event.get("review_reason"):
-            flagged_events.append(event)
-        else:
-            unflagged_events.append(event)
+            print(f"   Review note: {event['review_reason']}")
 
-    print("\n" + "=" * 60)
-    print("SCRAPING SUMMARY")
-    print("=" * 60)
 
-    print(f"Total candidate events: {len(events)}")
+def history_scraper_run_year_menu():
 
-    print("\nCategory totals:")
+    while True:
 
-    for category in sorted(category_totals):
-        print(f"{category}: {category_totals[category]}")
+        year_input = input(
+            f"\nEnter a year ({START_YEAR}-{END_YEAR}) or Q to quit: "
+        ).strip()
 
-    print(f"\nEntries flagged for review: {len(flagged_events)}")
-    print(f"Entries without review flags: {len(unflagged_events)}")
+        if year_input.lower() == "q":
 
-    print("\nSAMPLE EVENTS")
-    print("-" * 60)
+            print("Exiting the History Scraper.")
+            break
 
-    for number, event in enumerate(events[:20], start=1):
-        print(
-            f"{number}. [{event['category']}] "
-            f"{event['event_date'] or 'UNKNOWN DATE'} - "
-            f"{event['event_title']}"
+        if not year_input.isdigit():
+
+            print("Please enter a valid year.")
+            continue
+
+        selected_year = int(year_input)
+
+        if not START_YEAR <= selected_year <= END_YEAR:
+
+            print(
+                f"Please enter a year between "
+                f"{START_YEAR} and {END_YEAR}."
+            )
+
+            continue
+
+        print(f"\nScraping events for {selected_year}...")
+
+        yearly_events = history_scraper_fetch_year_events(
+            selected_year
         )
 
-        if event.get("review_reason"):
-            print(f"   REVIEW: {event['review_reason']}")
+        history_scraper_validate_event_collection(yearly_events)
+
+        history_scraper_check_collection_duplicates(yearly_events)
+
+        history_scraper_display_collection_summary(yearly_events)
+
+        categories = sorted({
+            event["category"]
+            for event in yearly_events
+        })
+
+        while True:
+
+            print("\n===== Event Categories =====")
+
+            for index, category in enumerate(categories, start=1):
+
+                count = sum(
+                    event["category"] == category
+                    for event in yearly_events
+                )
+
+                print(f"{index}. {category}: {count}")
+
+            print("0. Choose another year")
+
+            category_choice = input(
+                "Select a category: "
+            ).strip()
+
+            if category_choice == "0":
+                break
+
+            if not category_choice.isdigit():
+
+                print("Please enter a valid option.")
+                continue
+
+            category_index = int(category_choice) - 1
+
+            if not 0 <= category_index < len(categories):
+
+                print("Invalid category selection.")
+                continue
+
+            selected_category = categories[category_index]
+
+            history_scraper_display_category_events(
+                yearly_events,
+                selected_category,
+            )
 
 
-def main():
-    print("=" * 60)
-    print("WORLD HISTORY WEB SCRAPER")
-    print("=" * 60)
-
-    print(f"Year range: {START_YEAR}-{END_YEAR}")
-    print(f"Preview only: {PREVIEW_ONLY}")
-    print("Database writes: DISABLED")
-
-    all_events = []
-
-    for year in range(START_YEAR, END_YEAR + 1):
-        all_events.extend(scrape_year(year))
-
-    print("\nRunning data quality checks...")
-
-    validate_event_records(all_events)
-    run_global_quality_checks(all_events)
-
-    print_review_summary(all_events)
-    print_date_quality_report(all_events)
-    print_data_quality_report(all_events)
-    print_flagged_events(all_events)
-
-    print("\nPREVIEW COMPLETE")
-    print("No database records were changed.")
-    print("Duplicate and similarity flags require manual confirmation.")
+def run_world_history_scraping_session():
+    history_scraper_run_year_menu()
 
 
 if __name__ == "__main__":
-    main()
+    run_world_history_scraping_session()

@@ -3,9 +3,7 @@ import mysql.connector
 from mysql.connector import Error
 
 
-def connect_database():
-    """Connect to the World History database."""
-
+def history_scraper_open_database_connection():
     try:
         password = os.getenv("MYSQL_PASSWORD")
 
@@ -29,3 +27,13 @@ def connect_database():
         print(f"Database connection failed: {error}")
 
     return None
+
+
+def history_scraper_close_database_connection(connection):
+    try:
+        if connection and connection.is_connected():
+            connection.close()
+            print("Database connection closed successfully.")
+
+    except Error as error:
+        print(f"Error closing database connection: {error}")
