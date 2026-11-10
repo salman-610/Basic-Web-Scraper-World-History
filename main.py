@@ -1,3 +1,4 @@
+
 import re
 from datetime import datetime
 from collections import defaultdict
@@ -6,11 +7,18 @@ from difflib import SequenceMatcher
 import requests
 from bs4 import BeautifulSoup
 
+from database import (
+    history_scraper_open_database_connection,
+    history_scraper_save_year_events,
+    history_scraper_close_database_connection
+)
+
 
 START_YEAR = 2020
 END_YEAR = 2026
 
 BASE_URL = "https://en.wikipedia.org/wiki/"
+
 HEADERS = {
     "User-Agent": "HistoryEventResearchTool/1.0 (student learning project)"
 }
@@ -496,10 +504,7 @@ def history_scraper_parse_event_entries(event_lists, year):
                     year,
                 )
 
-                unique_key = (
-                    history_scraper_normalize_text(title),
-                    event_date,
-                )
+                unique_key = history_scraper_normalize_text(title)
 
                 if unique_key not in seen_entries:
 
@@ -829,7 +834,7 @@ def history_scraper_display_category_events(
             print(f"   Review note: {event['review_reason']}")
 
 
-def history_scraper_run_year_menu():
+def history_scraper_run_year_menu(connection):
 
     while True:
 
@@ -864,9 +869,25 @@ def history_scraper_run_year_menu():
             selected_year
         )
 
+        if not yearly_events:
+            print(
+                f"No events were collected for "
+                f"{selected_year}. Existing database records "
+                "have been preserved."
+            )
+            continue
+
         history_scraper_validate_event_collection(yearly_events)
 
         history_scraper_check_collection_duplicates(yearly_events)
+
+        print("\nSaving events to MySQL...")
+
+        history_scraper_save_year_events(
+            connection,
+            yearly_events,
+            selected_year
+        )
 
         history_scraper_display_collection_summary(yearly_events)
 
@@ -913,12 +934,23 @@ def history_scraper_run_year_menu():
 
             history_scraper_display_category_events(
                 yearly_events,
-                selected_category,
+                selected_category
             )
 
 
 def run_world_history_scraping_session():
-    history_scraper_run_year_menu()
+
+    connection = history_scraper_open_database_connection()
+
+    if connection is None:
+        print("Unable to start the scraping session.")
+        return
+
+    try:
+        history_scraper_run_year_menu(connection)
+
+    finally:
+        history_scraper_close_database_connection(connection)
 
 
 if __name__ == "__main__":
